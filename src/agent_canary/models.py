@@ -75,6 +75,9 @@ class Canary:
     template: str | None = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     active: bool = True
+    # Soft boundary speech for agents (measurement / forensics). Default off.
+    notice_mode: str = "off"  # off | static | stochastic
+    access_count: int = 0  # successful trigger deliveries (1-based after first)
 
     @staticmethod
     def generate_id(vector: Vector, name: str) -> str:
@@ -132,6 +135,8 @@ class TriggerEvent:
     forensic_chain: ForensicChain = field(default_factory=ForensicChain)
     classification: Classification = field(default_factory=Classification)
     raw_request: dict[str, Any] = field(default_factory=dict)
+    # Soft scope notice delivered with this trigger (None if mode off).
+    scope_notice: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dict for JSON/logging."""

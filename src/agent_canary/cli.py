@@ -76,41 +76,77 @@ def plant() -> None:
     """Plant canary tripwires."""
 
 
+_NOTICE_HELP = (
+    "Soft scope notice for agents: off (default silent), "
+    "static (fixed banner), or stochastic (sampled text). "
+    "Forensics/measurement only; not a hard control."
+)
+
+
 @plant.command("file")
 @click.argument("path")
 @click.option("--template", required=True, help="Template name (aws_creds, db_creds, ssh_key, api_keys, pii_data, internal_doc)")
 @click.option("--name", default=None, help="Human-readable name for this canary")
-def plant_file_cmd(path: str, template: str, name: str | None) -> None:
+@click.option(
+    "--notice",
+    "notice_mode",
+    type=click.Choice(["off", "static", "stochastic"], case_sensitive=False),
+    default="off",
+    show_default=True,
+    help=_NOTICE_HELP,
+)
+def plant_file_cmd(path: str, template: str, name: str | None, notice_mode: str) -> None:
     """Plant a file honeypot at PATH."""
     reg = _get_registry()
     template = template.replace("-", "_")  # accept hyphens or underscores
     resolved = str(Path(path).resolve())
+    notice_mode = notice_mode.lower()
 
     if plant_file is not None:
-        canary = plant_file(reg, resolved, template_name=template)
+        canary = plant_file(
+            reg, resolved, template_name=template, notice_mode=notice_mode
+        )
     else:
         # Fallback: write template content directly (watchdog not installed)
         from .templates import get_template
+        from .scope_notice import prefix_file_content, render_notice
+
         canary_id = Canary.generate_id(Vector.FILE, name or Path(path).name)
         content = get_template(template)(canary_id)
+        notice = render_notice(canary_id, notice_mode, access_n=1)
+        if notice is not None:
+            content = prefix_file_content(content, notice)
         dest = Path(path)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(content)
         canary = Canary(
             id=canary_id, vector=Vector.FILE,
             name=name or dest.name, path_or_url=resolved, template=template,
+            notice_mode=notice_mode,
         )
         reg.add_canary(canary)
 
-    console.print(f"[green]Planted[/green] file canary [bold]{canary.id}[/bold] at {path}")
+    console.print(
+        f"[green]Planted[/green] file canary [bold]{canary.id}[/bold] "
+        f"at {path} (notice={canary.notice_mode})"
+    )
 
 
 @plant.command("mcp-tool")
 @click.argument("name")
 @click.option("--description", required=True, help="Tool description visible to agents")
-def plant_mcp_tool(name: str, description: str) -> None:
+@click.option(
+    "--notice",
+    "notice_mode",
+    type=click.Choice(["off", "static", "stochastic"], case_sensitive=False),
+    default="off",
+    show_default=True,
+    help=_NOTICE_HELP,
+)
+def plant_mcp_tool(name: str, description: str, notice_mode: str) -> None:
     """Register an MCP tripwire tool."""
     reg = _get_registry()
+    notice_mode = notice_mode.lower()
     canary_id = Canary.generate_id(Vector.MCP_TOOL, name)
     canary = Canary(
         id=canary_id,
@@ -118,18 +154,31 @@ def plant_mcp_tool(name: str, description: str) -> None:
         name=name,
         path_or_url=f"mcp://{name}",
         template=description,
+        notice_mode=notice_mode,
     )
     reg.add_canary(canary)
-    console.print(f"[green]Registered[/green] MCP tripwire [bold]{canary_id}[/bold] — {name}")
+    console.print(
+        f"[green]Registered[/green] MCP tripwire [bold]{canary_id}[/bold] "
+        f"— {name} (notice={notice_mode})"
+    )
 
 
 @plant.command("api")
 @click.argument("url")
 @click.option("--method", required=True, help="HTTP method (GET, POST, etc.)")
 @click.option("--description", required=True, help="Endpoint description")
-def plant_api(url: str, method: str, description: str) -> None:
+@click.option(
+    "--notice",
+    "notice_mode",
+    type=click.Choice(["off", "static", "stochastic"], case_sensitive=False),
+    default="off",
+    show_default=True,
+    help=_NOTICE_HELP,
+)
+def plant_api(url: str, method: str, description: str, notice_mode: str) -> None:
     """Register a decoy API endpoint."""
     reg = _get_registry()
+    notice_mode = notice_mode.lower()
     name = f"{method.upper()} {url}"
     canary_id = Canary.generate_id(Vector.API_ENDPOINT, name)
     canary = Canary(
@@ -138,10 +187,13 @@ def plant_api(url: str, method: str, description: str) -> None:
         name=name,
         path_or_url=url,
         template=description,
+        notice_mode=notice_mode,
     )
     reg.add_canary(canary)
-    console.print(f"[green]Registered[/green] API canary [bold]{canary_id}[/bold] — {method.upper()} {url}")
-
+    console.print(
+        f"[green]Registered[/green] API canary [bold]{canary_id}[/bold] "
+        f"— {method.upper()} {url} (notice={notice_mode})"
+    )
 
 # ---------------------------------------------------------------------------
 # list
@@ -163,6 +215,7 @@ def list_canaries() -> None:
     table.add_column("Name")
     table.add_column("Path / URL", style="dim")
     table.add_column("Template")
+    table.add_column("Notice")
     table.add_column("Active", justify="center")
 
     for c in canaries:
@@ -172,6 +225,7 @@ def list_canaries() -> None:
             c.name,
             c.path_or_url,
             c.template or "",
+            c.notice_mode or "off",
             "[green]yes[/green]" if c.active else "[red]no[/red]",
         )
 
