@@ -28,3 +28,8 @@ agent-canary = "agent_canary.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent_canary"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["src"]
