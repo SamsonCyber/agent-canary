@@ -16,6 +16,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..models import ForensicChain, TriggerEvent, Vector
 from ..registry import Registry
+from ..scope_notice import mcp_error_payload, render_notice
 
 logger = logging.getLogger("agent_canary.vectors.mcp")
 
@@ -28,13 +29,18 @@ class TripwireTool:
     description: str
     parameters: dict[str, Any] = field(default_factory=dict)
     response: dict[str, Any] | None = None
+    canary_id: str | None = None
+    notice_mode: str = "off"
 
     def default_response(self) -> dict[str, Any]:
         if self.response is not None:
-            return self.response
+            return dict(self.response)
         return {
             "error": "insufficient_permissions",
-            "message": f"This action requires admin approval. Request ID: req_{secrets.token_hex(6)}",
+            "message": (
+                f"This action requires admin approval. "
+                f"Request ID: req_{secrets.token_hex(6)}"
+            ),
         }
 
     def to_mcp_schema(self) -> dict[str, Any]:
@@ -100,6 +106,28 @@ def default_tripwire_tools() -> list[TripwireTool]:
     ]
 
 
+def tools_from_registry(registry: Registry) -> list[TripwireTool]:
+    """Planted MCP canaries first, then default tools for unregistered names."""
+    tools: list[TripwireTool] = []
+    seen: set[str] = set()
+    for c in registry.list_canaries():
+        if c.vector != Vector.MCP_TOOL or not c.active:
+            continue
+        tools.append(
+            TripwireTool(
+                name=c.name,
+                description=c.template or f"Tripwire tool {c.name}",
+                canary_id=c.id,
+                notice_mode=c.notice_mode,
+            )
+        )
+        seen.add(c.name)
+    for tw in default_tripwire_tools():
+        if tw.name not in seen:
+            tools.append(tw)
+    return tools
+
+
 def create_mcp_server(
     registry: Registry,
     tools: list[TripwireTool] | None = None,
@@ -116,7 +144,7 @@ def create_mcp_server(
     and returns a plausible error response.
     """
     if tools is None:
-        tools = default_tripwire_tools()
+        tools = tools_from_registry(registry)
 
     tools = list(tools)
     server = FastMCP(name, host=host, port=port)
@@ -141,22 +169,41 @@ def create_mcp_server(
         """
 
         async def handler(**kwargs: Any) -> str:
+            canary_id = tw.canary_id or f"mcp_tool:{tw.name}"
+            # Prefer live registry state for notice mode / access count
+            reg_canary = registry.find_mcp_canary(tw.name)
+            notice_mode = (
+                reg_canary.notice_mode if reg_canary else tw.notice_mode
+            )
+            if reg_canary:
+                canary_id = reg_canary.id
+                access_n = registry.bump_access_count(canary_id) or 1
+            else:
+                access_n = 1
+
+            notice = render_notice(canary_id, notice_mode, access_n=access_n)
+            payload = tw.default_response()
+            if notice is not None:
+                payload = mcp_error_payload(payload, notice)
+
             event = TriggerEvent(
                 vector=Vector.MCP_TOOL,
-                canary_id=f"mcp_tool:{tw.name}",
+                canary_id=canary_id,
                 forensic_chain=ForensicChain(raw_args=kwargs),
                 raw_request={
                     "method": "tools/call",
                     "tool": tw.name,
                     "arguments": kwargs,
                 },
+                scope_notice=notice.to_dict() if notice else None,
             )
 
             logger.warning(
-                "MCP tripwire triggered: tool=%s args=%s event_id=%s",
+                "MCP tripwire triggered: tool=%s args=%s event_id=%s notice=%s",
                 tw.name,
                 json.dumps(kwargs, default=str),
                 event.id,
+                notice.family if notice else "off",
             )
 
             registry.log_trigger(event)
@@ -164,7 +211,7 @@ def create_mcp_server(
             if on_trigger is not None:
                 on_trigger(event)
 
-            return json.dumps(tw.default_response())
+            return json.dumps(payload)
 
         handler.__name__ = tw.name
         handler.__qualname__ = tw.name

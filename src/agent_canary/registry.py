@@ -94,6 +94,8 @@ class Registry:
             "scope": asdict(canary.scope),
             "created_at": canary.created_at,
             "active": canary.active,
+            "notice_mode": getattr(canary, "notice_mode", "off") or "off",
+            "access_count": int(getattr(canary, "access_count", 0) or 0),
         })
         config["canaries"] = canaries
         self._save_config(config)
@@ -129,6 +131,8 @@ class Registry:
                 ),
                 created_at=c.get("created_at", ""),
                 active=c.get("active", True),
+                notice_mode=c.get("notice_mode", "off") or "off",
+                access_count=int(c.get("access_count", 0) or 0),
             ))
         return result
 
@@ -146,6 +150,44 @@ class Registry:
             (event.id, event.canary_id, event.triggered_at, event.vector.value, json.dumps(event.to_dict())),
         )
         self.db.commit()
+
+    def bump_access_count(self, canary_id: str) -> int:
+        """Increment access_count for a canary. Returns new 1-based count."""
+        config = self._load_config()
+        canaries = config.get("canaries", [])
+        new_n = 0
+        for c in canaries:
+            if c.get("id") == canary_id:
+                new_n = int(c.get("access_count", 0) or 0) + 1
+                c["access_count"] = new_n
+                break
+        if new_n:
+            config["canaries"] = canaries
+            self._save_config(config)
+        return new_n
+
+    def get_canary(self, canary_id: str) -> Canary | None:
+        for c in self.list_canaries():
+            if c.id == canary_id:
+                return c
+        return None
+
+    def find_mcp_canary(self, tool_name: str) -> Canary | None:
+        """Match registered MCP canary by tool name or path mcp://name."""
+        for c in self.list_canaries():
+            if c.vector != Vector.MCP_TOOL or not c.active:
+                continue
+            if c.name == tool_name or c.path_or_url in (f"mcp://{tool_name}", tool_name):
+                return c
+        return None
+
+    def find_api_canary(self, path: str) -> Canary | None:
+        for c in self.list_canaries():
+            if c.vector != Vector.API_ENDPOINT or not c.active:
+                continue
+            if c.path_or_url == path or c.path_or_url.rstrip("/") == path.rstrip("/"):
+                return c
+        return None
 
     def get_triggers(self, canary_id: str | None = None, limit: int = 50) -> list[TriggerEvent]:
         """Retrieve trigger events, optionally filtered by canary ID."""
@@ -184,6 +226,7 @@ class Registry:
                     framework_confidence=af.get("framework_confidence", 0.0),
                 ),
                 raw_request=data.get("raw_request", {}),
+                scope_notice=data.get("scope_notice"),
             ))
         return events
 

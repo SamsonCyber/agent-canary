@@ -20,6 +20,12 @@ from watchdog.observers.polling import PollingObserver
 
 from ..models import Canary, ScopeRule, TriggerEvent, Vector
 from ..registry import Registry
+from ..scope_notice import (
+    NoticeMode,
+    parse_notice_mode,
+    prefix_file_content,
+    render_notice,
+)
 from ..templates import get_template
 
 logger = logging.getLogger("agent_canary.vectors.files")
@@ -37,16 +43,25 @@ def plant_file(
     path: str | Path,
     template_name: str,
     scope: ScopeRule | None = None,
+    notice_mode: str | NoticeMode = "off",
 ) -> Canary:
     """Generate honeypot content from a template, write it to *path*, and
     register the canary in the registry.
+
+    notice_mode: off | static | stochastic
+      When not off, a scope-notice banner is prepended at plant time
+      (access_n=1). Soft boundary speech for agents; not a hard control.
 
     Returns the newly created Canary object.
     """
     path = Path(path)
     canary_id = Canary.generate_id(Vector.FILE, str(path))
+    mode = parse_notice_mode(notice_mode)
 
     content = get_template(template_name)(canary_id)
+    notice = render_notice(canary_id, mode, access_n=1)
+    if notice is not None:
+        content = prefix_file_content(content, notice)
 
     # Ensure parent directories exist
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,9 +74,16 @@ def plant_file(
         path_or_url=str(path),
         scope=scope or ScopeRule(),
         template=template_name,
+        notice_mode=mode.value,
     )
     registry.add_canary(canary)
-    logger.info("Planted file canary %s at %s (template=%s)", canary_id, path, template_name)
+    logger.info(
+        "Planted file canary %s at %s (template=%s notice=%s)",
+        canary_id,
+        path,
+        template_name,
+        mode.value,
+    )
     return canary
 
 
@@ -100,13 +122,24 @@ class _CanaryEventHandler(FileSystemEventHandler):
             return
         self._last_trigger[src] = now
 
+        access_n = self.registry.bump_access_count(canary.id) or (
+            canary.access_count + 1
+        )
+        notice = render_notice(canary.id, canary.notice_mode, access_n=access_n)
         trigger = TriggerEvent(
             canary_id=canary.id,
             vector=Vector.FILE,
             raw_request={"file_path": src, "event_type": event.event_type},
+            scope_notice=notice.to_dict() if notice else None,
         )
         self.registry.log_trigger(trigger)
-        logger.warning("Canary triggered: %s (%s) via %s", canary.id, src, event.event_type)
+        logger.warning(
+            "Canary triggered: %s (%s) via %s notice=%s",
+            canary.id,
+            src,
+            event.event_type,
+            notice.family if notice else "off",
+        )
 
         if self.callback:
             try:
@@ -234,11 +267,19 @@ def check_file_access(registry: Registry, path: str | Path) -> TriggerEvent | No
     if canary is None:
         return None
 
+    access_n = registry.bump_access_count(canary.id) or (canary.access_count + 1)
+    notice = render_notice(canary.id, canary.notice_mode, access_n=access_n)
     trigger = TriggerEvent(
         canary_id=canary.id,
         vector=Vector.FILE,
         raw_request={"file_path": norm, "check_type": "manual"},
+        scope_notice=notice.to_dict() if notice else None,
     )
     registry.log_trigger(trigger)
-    logger.warning("Manual check triggered canary %s at %s", canary.id, norm)
+    logger.warning(
+        "Manual check triggered canary %s at %s notice=%s",
+        canary.id,
+        norm,
+        notice.family if notice else "off",
+    )
     return trigger

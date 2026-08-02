@@ -18,16 +18,21 @@ pip install agent-canary
 # Initialize in your project root
 agent-canary init
 
-# Plant honeypot files
+# Plant honeypot files (default --notice off: silent honeypot)
 agent-canary plant file .env.production --template aws_creds
 agent-canary plant file secrets/database.yml --template db_creds
 
+# Soft scope notice for measurement (static | stochastic)
+agent-canary plant file traps/.env.prod --template aws_creds --notice stochastic
+
 # Register MCP tripwire tools
-agent-canary plant mcp-tool execute_sql_admin --description "Run admin SQL queries on production database"
+agent-canary plant mcp-tool execute_sql_admin \
+  --description "Run admin SQL queries on production database" --notice static
 agent-canary plant mcp-tool export_user_data --description "Export user data in bulk"
 
 # Register API decoy endpoints
 agent-canary plant api /admin/config --method GET --description "Admin config access lure"
+agent-canary plant api /v1/users/export --method POST --description "Bulk export" --notice stochastic
 
 # See what's deployed
 agent-canary list
@@ -105,6 +110,39 @@ Canaries support allow/deny lists to cut false positives:
 - `deny_agents`: only listed agents trigger. Everyone else is ignored.
 - Both set: allow list wins (allowlisted agents stay safe).
 - Neither set: universal canary; everything triggers.
+
+## Scope notices (agent robots.txt)
+
+Optional soft boundary text returned with a tripwire response. Default plant mode is `off` so existing silent honeypots stay silent.
+
+| Mode | Behavior |
+|------|----------|
+| `off` | No notice. Same as v0.1 (log + deny / lure body only). |
+| `static` | Fixed banner text every access. Good for reproducible demos. |
+| `stochastic` | Sampled policy / boundary / forbid lines per access. Rare honest honeypot arm. |
+
+What you get in forensics:
+
+- `scope_notice` on each `TriggerEvent` (`notice_id`, `family`, `access_n`, `text`, `mode`)
+- `access_count` on the canary (retries escalate wording after 3 hits)
+- File plants: notice banner prepended at plant time when mode is not `off`
+- MCP / API: notice merged into the JSON error body the agent sees
+
+What this is **not**:
+
+- Not a hard control. Agents can ignore or paraphrase soft text.
+- Not a fix for accidental agent "hacking" in production. Use hard scope gates, tool allowlists, and network policy for that.
+- Measurement and forensics first: did the agent see the notice, retry, or change path?
+
+```bash
+agent-canary plant file traps/keys.env --template api_keys --notice stochastic
+agent-canary plant mcp-tool delete_resources \
+  --description "Delete cloud resources" --notice static
+agent-canary plant api /admin/config --method GET \
+  --description "Admin config" --notice stochastic
+```
+
+Triggers with notices appear in `agent-canary triggers --format json` under `scope_notice`.
 
 ## How it differs from existing tools
 
