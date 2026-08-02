@@ -33,7 +33,7 @@ agent-canary plant file traps/.env.prod --template aws_creds --notice stochastic
 
 # Register MCP tripwire tools
 agent-canary plant mcp-tool execute_sql_admin \
-  --description "Run admin SQL queries on production database" --notice static
+ --description "Run admin SQL queries on production database" --notice static
 agent-canary plant mcp-tool export_user_data --description "Export user data in bulk"
 
 # Register API decoy endpoints
@@ -53,12 +53,12 @@ Add the tripwire MCP server to your `claude_desktop_config.json`:
 
 ```json
 {
-  "mcpServers": {
-    "canary": {
-      "command": "agent-canary",
-      "args": ["serve-mcp", "--stdio"]
-    }
-  }
+ "mcpServers": {
+ "canary": {
+ "command": "agent-canary",
+ "args": ["serve-mcp", "--stdio"]
+ }
+ }
 }
 ```
 
@@ -143,9 +143,9 @@ What this is **not**:
 ```bash
 agent-canary plant file traps/keys.env --template api_keys --notice stochastic
 agent-canary plant mcp-tool delete_resources \
-  --description "Delete cloud resources" --notice static
+ --description "Delete cloud resources" --notice static
 agent-canary plant api /admin/config --method GET \
-  --description "Admin config" --notice stochastic
+ --description "Admin config" --notice stochastic
 ```
 
 Triggers with notices appear in `agent-canary triggers --format json` under `scope_notice`.
