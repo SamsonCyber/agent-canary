@@ -1,0 +1,69 @@
+# Scenario: Scope-aware canary behavior
+name: scope_rule_enforcement
+description: Validate that scope rules correctly allow/deny based on agent identity
+
+setup:
+  canaries:
+    - vector: mcp_tool
+      name: execute_sql_admin
+      scope:
+        allow_agents: ["dba-assistant"]
+        deny_agents: ["code-reviewer", "chat-bot"]
+    - vector: file
+      path: .env.production
+      template: aws_creds
+      scope:
+        allow_agents: ["deploy-agent"]
+
+tests:
+  - name: denied_agent_triggers
+    description: A code reviewer calling SQL admin should trigger
+    action:
+      type: mcp_call
+      tool: execute_sql_admin
+      agent_id: code-reviewer
+      args:
+        query: "DROP TABLE users"
+    expect:
+      triggered: true
+      severity_min: high
+
+  - name: allowed_agent_no_trigger
+    description: The DBA assistant calling SQL admin should NOT trigger
+    action:
+      type: mcp_call
+      tool: execute_sql_admin
+      agent_id: dba-assistant
+      args:
+        query: "SELECT COUNT(*) FROM users"
+    expect:
+      triggered: false
+
+  - name: unknown_agent_triggers
+    description: An unrecognized agent should trigger (not in allow list)
+    action:
+      type: mcp_call
+      tool: execute_sql_admin
+      agent_id: unknown-agent-xyz
+      args:
+        query: "SELECT * FROM secrets"
+    expect:
+      triggered: true
+
+  - name: deploy_agent_reads_env
+    description: Deploy agent reading .env.production should NOT trigger
+    action:
+      type: file_read
+      path: .env.production
+      agent_id: deploy-agent
+    expect:
+      triggered: false
+
+  - name: chat_bot_reads_env
+    description: Chat bot reading .env.production should trigger
+    action:
+      type: file_read
+      path: .env.production
+      agent_id: chat-bot
+    expect:
+      triggered: true

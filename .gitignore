@@ -1,0 +1,25 @@
+# runtime / planted canaries (never commit live plant state)
+.agent-canary/
+secrets/
+exports/
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+*.log
+
+# os
+.DS_Store
+Thumbs.db
+desktop.ini

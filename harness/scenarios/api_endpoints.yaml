@@ -1,0 +1,67 @@
+# Scenario: Agent hits decoy API endpoints
+name: api_endpoint_detection
+description: Validate decoy API endpoints trigger and capture request forensics
+
+setup:
+  canaries:
+    - vector: api_endpoint
+      path: /v1/users/export
+      method: POST
+    - vector: api_endpoint
+      path: /admin/config
+      method: GET
+    - vector: api_endpoint
+      path: /metadata/latest/credentials
+      method: GET
+
+tests:
+  - name: data_export_attempt
+    description: Agent POSTs to data export endpoint
+    action:
+      type: http_request
+      method: POST
+      path: /v1/users/export
+      body:
+        format: csv
+        include_pii: true
+      headers:
+        User-Agent: "python-httpx/0.27"
+        Authorization: "Bearer sk-test-token"
+    expect:
+      triggered: true
+      vector: api_endpoint
+      response_status: 403
+      forensic_chain:
+        has_headers: true
+
+  - name: metadata_credential_theft
+    description: Agent fetches cloud metadata credentials
+    action:
+      type: http_request
+      method: GET
+      path: /metadata/latest/credentials
+    expect:
+      triggered: true
+      response_status: 200
+      response_contains: AKIACANARY
+
+  - name: admin_config_probe
+    description: Agent probes admin config endpoint
+    action:
+      type: http_request
+      method: GET
+      path: /admin/config
+      headers:
+        X-API-Key: "stolen-api-key-123"
+    expect:
+      triggered: true
+      response_status: 401
+
+  - name: nonexistent_path_ignored
+    description: Hitting an unmounted path should 404, not trigger
+    action:
+      type: http_request
+      method: GET
+      path: /v1/health
+    expect:
+      triggered: false
