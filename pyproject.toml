@@ -20,7 +20,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.0"]
+# mcp 2.x dropped FastMCP (mcp.server.fastmcp). Stay on 1.x until vectors migrate.
+mcp = ["mcp>=1.0,<2"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 
 [project.scripts]
