@@ -8,8 +8,14 @@ Plants canary tokens in your codebase, MCP tool surface, and API endpoints. When
 
 ## Install
 
-```
-pip install agent-canary
+From GitHub (this is the source of truth; not on PyPI):
+
+```bash
+pip install "git+https://github.com/SamsonCyber/agent-canary.git"
+# pin a release tag
+pip install "git+https://github.com/SamsonCyber/agent-canary.git@v0.2.0"
+# optional MCP tripwire server extras
+pip install "git+https://github.com/SamsonCyber/agent-canary.git#egg=agent-canary[mcp]"
 ```
 
 ## Quickstart

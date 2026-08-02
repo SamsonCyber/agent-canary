@@ -1,2 +1,2 @@
-"""Agent Canary — Tripwire detection for autonomous AI agents."""
-__version__ = "0.1.0"
+"""Agent Canary: tripwire detection for autonomous AI agents."""
+__version__ = "0.2.0"
