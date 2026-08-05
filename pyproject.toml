@@ -4,13 +4,22 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-canary"
-version = "0.2.0"
+version = "0.3.0"
 description = "Tripwire detection for autonomous AI agents"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [{ name = "SamsonCyber" }]
-keywords = ["agents", "canary", "honeypot", "mcp", "security", "tripwire"]
+keywords = [
+    "agents",
+    "canary",
+    "honeypot",
+    "mcp",
+    "security",
+    "tripwire",
+    "nostr",
+    "forensics",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -37,13 +46,21 @@ Changelog = "https://github.com/SamsonCyber/agent-canary/releases"
 [project.optional-dependencies]
 # mcp 2.x dropped FastMCP (mcp.server.fastmcp). Stay on 1.x until vectors migrate.
 mcp = ["mcp>=1.0,<2"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+# BIP-340 Schnorr (coincurve) + WebSocket relay publish
+nostr = ["coincurve>=20", "websockets>=12"]
+# Everything for local harness work
+all = ["mcp>=1.0,<2", "coincurve>=20", "websockets>=12"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "coincurve>=20", "websockets>=12"]
 
 [project.scripts]
 agent-canary = "agent_canary.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent_canary"]
+
+# Dashboard UI assets (non-.py)
+[tool.hatch.build.targets.wheel.force-include]
+"src/agent_canary/dashboard/static/index.html" = "agent_canary/dashboard/static/index.html"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,166 +1,257 @@
 # Agent Canary
 
-Tripwire detection for autonomous AI agents.
+**Tripwire detection for autonomous AI agents.**
 
-## What it does
+Plant honeypots in files, MCP tools, and API routes. When an agent crosses the line, Agent Canary records a sealed forensic event, optional Nostr attestation, and shows it in a local operator dashboard.
 
-Plants canary tokens in your codebase, MCP tool surface, and API endpoints. When an agent reads a honeypot file, calls a tripwire tool, or hits a decoy API route, Agent Canary logs a structured trigger with the forensic chain (arguments, headers, client IP, preceding tool calls). You see scope creep and unauthorized tool use without changing production app logic.
+```bash
+pip install "git+https://github.com/SamsonCyber/agent-canary.git#egg=agent-canary[all]"
+agent-canary init
+agent-canary plant file traps/.env.prod --template aws_creds
+agent-canary nostr init
+agent-canary dash
+# open http://127.0.0.1:8765/
+```
+
+---
+
+## Why this exists
+
+Agents read your tree, call tools, and probe APIs without the manners of a human attacker. Classic canaries watch networks and credentials for people. Agent Canary watches **agent behavior inside your project**: scope creep, tool abuse, and quiet exfil attempts.
+
+You get three layers:
+
+| Layer | What you get |
+|-------|----------------|
+| **Tripwires** | File honeypots, MCP decoy tools, HTTP decoy routes |
+| **Forensics** | Hash-linked chain, optional BIP-340 signatures, exportable bundle |
+| **Operator UI** | Local dashboard for canaries, triggers, and the forensic chain |
+
+---
+
+## Operator dashboard
+
+Read-only web UI bound to one project root. Plant and remove stay on the CLI.
+
+```bash
+agent-canary dash --host 127.0.0.1 --port 8765 --root .
+```
+
+**What you see**
+
+- Summary counts from live registry data (canaries, triggers, sealed links, chain tip)
+- Forensic chain timeline (oldest → newest) with file names, tools, and routes
+- Planted canaries and trigger history with seal status
+- JSON under `/api/*` for automation
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /` | Operator UI |
+| `GET /api/dashboard` | Full payload (summary + canaries + triggers + chain) |
+| `GET /api/chain` | Forensic chain only |
+| `GET /api/canaries` | Planted canaries |
+| `GET /api/triggers` | Trigger history |
+| `GET /api/summary` | Counts and tip |
+| `GET /api/health` | Liveness |
+
+Light mode follows system preference:
+
+---
+
+## Crypto-verified forensics + Nostr
+
+Every trigger is sealed before it hits SQLite:
+
+1. **content_hash**: SHA-256 of the canonical event payload  
+2. **prev_hash**: previous link (or genesis zeros)  
+3. **seq**: monotonic index  
+4. **signature**: BIP-340 Schnorr when an nsec is present  
+
+That is a local append-only chain. Edit an old row and verification fails.
+
+### Nostr (optional extra)
+
+With `[nostr]` installed:
+
+- Sign seals under your **npub**
+- Publish immutable kind **`31240`** events to relays
+- Re-publish or verify from CLI
+
+Agents do **not** need Nostr. Only your canary host signs and publishes. The agent only trips a file, tool, or API lure.
+
+```bash
+pip install "git+https://github.com/SamsonCyber/agent-canary.git#egg=agent-canary[nostr]"
+
+agent-canary init
+agent-canary nostr init
+agent-canary alert add nostr wss://relay.damus.io
+agent-canary alert add nostr wss://nos.lol
+
+# after trips land
+agent-canary forensic verify
+agent-canary forensic verify --require-signature
+agent-canary forensic export --out canary-forensics.json
+agent-canary nostr status
+agent-canary nostr publish --last
+```
+
+Config (`.agent-canary/config.yaml`):
+
+```yaml
+forensics:
+  seal: true
+  require_signature: false
+alerts:
+  nostr:
+    relays:
+      - wss://relay.damus.io
+    auto_publish: true
+    kind: 31240
+```
+
+Private key: `.agent-canary/nostr/nsec` (never commit). Rotate with `agent-canary nostr init --force`.
+
+---
 
 ## Install
 
-From GitHub (this is the source of truth; not on PyPI):
+Source of truth is GitHub (not PyPI):
 
 ```bash
+# core
 pip install "git+https://github.com/SamsonCyber/agent-canary.git"
-# pin a release tag
-pip install "git+https://github.com/SamsonCyber/agent-canary.git@v0.2.0"
-# optional MCP tripwire server extras
+
+# MCP tripwire server
 pip install "git+https://github.com/SamsonCyber/agent-canary.git#egg=agent-canary[mcp]"
+
+# Nostr crypto + relay client
+pip install "git+https://github.com/SamsonCyber/agent-canary.git#egg=agent-canary[nostr]"
+
+# everything
+pip install "git+https://github.com/SamsonCyber/agent-canary.git#egg=agent-canary[all]"
+
+# pin a tag
+pip install "git+https://github.com/SamsonCyber/agent-canary.git@v0.3.0"
 ```
+
+Requires Python 3.10+.
+
+---
 
 ## Quickstart
 
 ```bash
-# Initialize in your project root
 agent-canary init
 
-# Plant honeypot files (default --notice off: silent honeypot)
-agent-canary plant file .env.production --template aws_creds
+# honeypot files
+agent-canary plant file traps/.env.production --template aws_creds
 agent-canary plant file secrets/database.yml --template db_creds
 
-# Soft scope notice for measurement (static | stochastic)
-agent-canary plant file traps/.env.prod --template aws_creds --notice stochastic
-
-# Register MCP tripwire tools
+# MCP tripwires
 agent-canary plant mcp-tool execute_sql_admin \
- --description "Run admin SQL queries on production database" --notice static
-agent-canary plant mcp-tool export_user_data --description "Export user data in bulk"
+  --description "Run admin SQL queries on production database"
+agent-canary plant mcp-tool export_user_data \
+  --description "Export user data in bulk"
 
-# Register API decoy endpoints
-agent-canary plant api /admin/config --method GET --description "Admin config access lure"
-agent-canary plant api /v1/users/export --method POST --description "Bulk export" --notice stochastic
+# API decoys
+agent-canary plant api /admin/config --method GET --description "Admin config lure"
+agent-canary plant api /v1/users/export --method POST --description "Bulk export"
 
-# See what's deployed
 agent-canary list
-
-# Start watching for triggers
-agent-canary watch
+agent-canary watch          # file access
+agent-canary serve-mcp      # or: agent-canary serve-mcp --stdio
+agent-canary serve-api     # decoy HTTP
+agent-canary dash          # operator UI
 ```
 
-## MCP integration
+All-in-one: `agent-canary run` (watcher + MCP SSE + API).
 
-Add the tripwire MCP server to your `claude_desktop_config.json`:
-
-```json
-{
- "mcpServers": {
- "canary": {
- "command": "agent-canary",
- "args": ["serve-mcp", "--stdio"]
- }
- }
-}
-```
-
-The server exposes tripwire tools via JSON-RPC. Any agent that calls one of these tools gets logged with full forensic context, then receives a plausible permission-denied error.
+---
 
 ## Three vectors
 
-**File honeypots.** Generate realistic credential files, API key configs, PII exports, and internal documents from 6 built-in templates. Monitors with `watchdog` (polling fallback). Manual access checks work for MCP wrappers that intercept `read_file`.
+**File honeypots.** Six templates (AWS env, DB YAML, SSH key, API keys, PII CSV, internal doc). Watchdog monitoring with polling fallback. `check_file_access` for MCP wrappers that intercept reads.
 
-**MCP tripwire tools.** Register fake high-privilege tools (5 defaults: `execute_sql_admin`, `send_email`, `export_user_data`, `modify_production_config`, `delete_resources`). On call, they log full arguments and return a plausible permission-denied error.
+**MCP tripwire tools.** High-privilege looking tools. On call: log full arguments, return a plausible permission error. Wire into Claude Desktop / Claude Code via stdio.
 
-**API decoy endpoints.** Serve fake HTTP routes (4 defaults: bulk export, admin config, cloud metadata credentials, Vault-style secrets) and capture headers, body, query parameters, and client IP.
+**API decoys.** Fake bulk export, admin config, cloud metadata, Vault-style routes. Capture method, path, headers, body, client IP.
+
+---
 
 ## Alerts
 
-Configure webhook, Slack, or Discord notifications:
+Webhook, Slack, Discord, and Nostr fire when tripwires hit (watch / serve-mcp / serve-api / run).
 
 ```bash
-# Generic webhook
 agent-canary alert add webhook https://your-server.com/canary-hook
-
-# Slack incoming webhook
 agent-canary alert add slack https://hooks.slack.com/services/T.../B.../xxx
-
-# Discord webhook
 agent-canary alert add discord https://discord.com/api/webhooks/123/abc
-
-# Test all configured destinations
+agent-canary alert add nostr wss://relay.damus.io
 agent-canary alert test
-
-# List configured destinations
 agent-canary alert list
 ```
 
-Alerts fire on every trigger event with structured payloads containing the canary ID, vector type, severity, forensic chain, and agent fingerprint.
+---
+
+## MCP integration
+
+```json
+{
+  "mcpServers": {
+    "canary": {
+      "command": "agent-canary",
+      "args": ["serve-mcp", "--stdio"]
+    }
+  }
+}
+```
+
+Any agent that calls a tripwire tool is logged with forensic context, then gets a permission-denied style response.
+
+---
 
 ## File templates
 
 | Template | Generates | Use case |
-|---|---|---|
-| `aws_creds` | Fake `.env` with AWS access keys | Credential harvesting |
-| `db_creds` | Database config YAML with production/staging blocks | Database access attempts |
-| `ssh_key` | Fake RSA private key with embedded tracking | Key exfiltration |
-| `api_keys` | YAML with Stripe, OpenAI, and GitHub tokens | API key theft |
-| `pii_data` | CSV with 6 rows of fake PII (names, SSNs, emails) | Data exfiltration |
-| `internal_doc` | Markdown architecture document marked confidential | Document access |
+|----------|-----------|----------|
+| `aws_creds` | Fake `.env` with AWS keys | Credential harvesting |
+| `db_creds` | Production/staging DB YAML | Database access probes |
+| `ssh_key` | Fake RSA key with embedded id | Key exfiltration |
+| `api_keys` | Stripe / OpenAI / GitHub-style tokens | API key theft |
+| `pii_data` | CSV of fake PII | Data exfiltration |
+| `internal_doc` | Confidential-looking markdown | Doc access |
 
-Each template embeds the canary ID in a format-plausible way so the lure stays traceable without looking like a tripwire.
+Each template embeds the canary id in a format-plausible way.
 
-## Scope rules
+---
 
-Canaries support allow/deny lists to cut false positives:
+## Scope rules and notices
 
-- `allow_agents`: listed agents never trigger. Anyone else does.
-- `deny_agents`: only listed agents trigger. Everyone else is ignored.
-- Both set: allow list wins (allowlisted agents stay safe).
-- Neither set: universal canary; everything triggers.
+**Scope rules:** `allow_agents` / `deny_agents` cut false positives. Allow list wins when both are set.
 
-## Scope notices (agent robots.txt)
-
-Optional soft boundary text returned with a tripwire response. Default plant mode is `off` so existing silent honeypots stay silent.
-
-| Mode | Behavior |
-|------|----------|
-| `off` | No notice. Same as v0.1 (log + deny / lure body only). |
-| `static` | Fixed banner text every access. Good for reproducible demos. |
-| `stochastic` | Sampled policy / boundary / forbid lines per access. Rare honest honeypot arm. |
-
-What you get in forensics:
-
-- `scope_notice` on each `TriggerEvent` (`notice_id`, `family`, `access_n`, `text`, `mode`)
-- `access_count` on the canary (retries escalate wording after 3 hits)
-- File plants: notice banner prepended at plant time when mode is not `off`
-- MCP / API: notice merged into the JSON error body the agent sees
-
-What this is **not**:
-
-- Not a hard control. Agents can ignore or paraphrase soft text.
-- Not a fix for accidental agent "hacking" in production. Use hard scope gates, tool allowlists, and network policy for that.
-- Measurement and forensics first: did the agent see the notice, retry, or change path?
+**Scope notices (soft):** `off` (default silent honeypot), `static`, or `stochastic` boundary text for measurement. Not a hard control. Use tool allowlists and network policy for real gates.
 
 ```bash
 agent-canary plant file traps/keys.env --template api_keys --notice stochastic
-agent-canary plant mcp-tool delete_resources \
- --description "Delete cloud resources" --notice static
-agent-canary plant api /admin/config --method GET \
- --description "Admin config" --notice stochastic
 ```
 
-Triggers with notices appear in `agent-canary triggers --format json` under `scope_notice`.
+---
 
-## How it differs from existing tools
+## How it differs
 
 | Tool | Primary target | Where it sits |
 |------|----------------|---------------|
-| Thinkst Canary | Human attackers on classic infra (DNS tokens, HTTP beacons, credential pairs) | Network / infra |
-| Beelzebub MCP | General network deception honeypots | Network |
-| SNARE/TANNER | Web app honeypots for scanners | Web tier |
-| **Agent Canary** | AI agents: MCP tool calls, agent file reads, autonomous API probing | App layer in your project tree |
+| Thinkst Canary | Human attackers on classic infra | Network / infra |
+| Beelzebub MCP | General network deception | Network |
+| SNARE / TANNER | Web scanners | Web tier |
+| **Agent Canary** | AI agents (MCP, file reads, API probing) | App layer in your tree |
 
-Agent Canary records agent-specific forensics (tool arguments, reasoning traces when available, agent fingerprints) so you can tell scope creep from injection or unexpected tool use. No separate honeypot host required.
+Agent-specific forensics (tool args, optional reasoning, fingerprints) plus a local dash and optional Nostr attestation. No separate honeypot host required.
+
+---
 
 ## License
 
 MIT
+
+**Repo:** [github.com/SamsonCyber/agent-canary](https://github.com/SamsonCyber/agent-canary)

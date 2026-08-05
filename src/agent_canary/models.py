@@ -6,7 +6,10 @@ import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .forensic.chain import ChainSeal
 
 
 class Vector(str, Enum):
@@ -137,8 +140,11 @@ class TriggerEvent:
     raw_request: dict[str, Any] = field(default_factory=dict)
     # Soft scope notice delivered with this trigger (None if mode off).
     scope_notice: dict[str, Any] | None = None
+    # Crypto seal: hash chain + optional BIP-340 / Nostr binding.
+    chain_seal: ChainSeal | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dict for JSON/logging."""
         from dataclasses import asdict
+
         return asdict(self)
