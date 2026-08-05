@@ -1,0 +1,1313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light dark" />
+  <title>Agent Canary</title>
+  <style>
+    :root {
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+        "Segoe UI", system-ui, Helvetica, Arial, sans-serif;
+      --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+      --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+      --radius: 18px;
+      --radius-sm: 12px;
+      --radius-pill: 980px;
+      --blur: 24px;
+      --sat: 1.2;
+
+      --bg: #f5f5f7;
+      --bg-elev: rgba(255, 255, 255, 0.72);
+      --bg-card: rgba(255, 255, 255, 0.78);
+      --bg-row-hover: rgba(0, 0, 0, 0.03);
+      --text: #1d1d1f;
+      --text-secondary: #6e6e73;
+      --border: rgba(0, 0, 0, 0.08);
+      --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06);
+      --shadow-hover: 0 2px 4px rgba(0,0,0,0.04), 0 16px 40px rgba(0,0,0,0.1);
+      --accent: #0071e3;
+      --accent-soft: rgba(0, 113, 227, 0.12);
+      --good: #34c759;
+      --warn: #ff9f0a;
+      --bad: #ff3b30;
+      --file: #007aff;
+      --mcp: #af52de;
+      --api: #64d2ff;
+      --hairline: rgba(0, 0, 0, 0.06);
+      --nav-bg: rgba(255, 255, 255, 0.65);
+      --glow-a: rgba(0, 113, 227, 0.18);
+      --glow-b: rgba(175, 82, 222, 0.12);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #000000;
+        --bg-elev: rgba(28, 28, 30, 0.72);
+        --bg-card: rgba(28, 28, 30, 0.82);
+        --bg-row-hover: rgba(255, 255, 255, 0.04);
+        --text: #f5f5f7;
+        --text-secondary: #a1a1a6;
+        --border: rgba(255, 255, 255, 0.1);
+        --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 12px 32px rgba(0,0,0,0.45);
+        --shadow-hover: 0 4px 12px rgba(0,0,0,0.5), 0 20px 48px rgba(0,0,0,0.55);
+        --accent: #0a84ff;
+        --accent-soft: rgba(10, 132, 255, 0.18);
+        --good: #30d158;
+        --warn: #ffd60a;
+        --bad: #ff453a;
+        --hairline: rgba(255, 255, 255, 0.08);
+        --nav-bg: rgba(22, 22, 24, 0.72);
+        --glow-a: rgba(10, 132, 255, 0.22);
+        --glow-b: rgba(191, 90, 242, 0.14);
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.47;
+      letter-spacing: -0.011em;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
+    }
+
+    /* Soft ambient blobs */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: -20% -10% auto -10%;
+      height: 70vh;
+      background:
+        radial-gradient(ellipse 50% 60% at 20% 30%, var(--glow-a), transparent 60%),
+        radial-gradient(ellipse 45% 55% at 80% 20%, var(--glow-b), transparent 55%);
+      filter: blur(40px);
+      opacity: 0.9;
+      pointer-events: none;
+      z-index: 0;
+      animation: drift 18s var(--ease) infinite alternate;
+    }
+    @keyframes drift {
+      from { transform: translate3d(0, 0, 0) scale(1); }
+      to { transform: translate3d(2%, 3%, 0) scale(1.05); }
+    }
+
+    .wrap {
+      position: relative;
+      z-index: 1;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 5.5rem 1.5rem 4rem;
+    }
+
+    /* Frosted sticky nav */
+    .nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 50;
+      backdrop-filter: saturate(var(--sat)) blur(var(--blur));
+      -webkit-backdrop-filter: saturate(var(--sat)) blur(var(--blur));
+      background: var(--nav-bg);
+      border-bottom: 1px solid var(--hairline);
+      transition: background 0.35s var(--ease), box-shadow 0.35s var(--ease);
+    }
+    .nav.scrolled {
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+    }
+    .nav-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0.85rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      min-width: 0;
+    }
+    .mark {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      font-size: 1.1rem;
+      background: linear-gradient(145deg, #1c1c1e, #3a3a3c);
+      color: #fff;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), var(--shadow);
+      flex-shrink: 0;
+    }
+    @media (prefers-color-scheme: light) {
+      .mark {
+        background: linear-gradient(145deg, #2c2c2e, #1c1c1e);
+      }
+    }
+    .brand-text { min-width: 0; }
+    .brand-text h1 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      line-height: 1.2;
+    }
+    .brand-text .sub {
+      margin: 0.1rem 0 0;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 36ch;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      flex-shrink: 0;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.78rem;
+      font-weight: 500;
+      padding: 0.4rem 0.75rem;
+      border-radius: var(--radius-pill);
+      background: var(--bg-elev);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      transition: transform 0.35s var(--ease), background 0.25s var(--ease), color 0.25s var(--ease);
+    }
+    .pill .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 0 0 currentColor;
+      animation: pulse 2.4s var(--ease) infinite;
+    }
+    .pill.ok { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); border-color: color-mix(in srgb, var(--good) 25%, transparent); }
+    .pill.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); border-color: color-mix(in srgb, var(--bad) 25%, transparent); }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 transparent; opacity: 1; }
+      50% { box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 18%, transparent); opacity: 0.85; }
+    }
+
+    .btn {
+      appearance: none;
+      border: none;
+      font: inherit;
+      font-size: 0.85rem;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-pill);
+      cursor: pointer;
+      color: #fff;
+      background: var(--accent);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.2);
+      transition:
+        transform 0.4s var(--ease-spring),
+        box-shadow 0.35s var(--ease),
+        background 0.25s var(--ease),
+        opacity 0.2s ease;
+      will-change: transform;
+    }
+    .btn:hover {
+      transform: scale(1.03);
+      box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent);
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn.spinning { opacity: 0.75; pointer-events: none; }
+    .btn.spinning .btn-icon {
+      display: inline-block;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Hero */
+    .hero {
+      margin-bottom: 1.75rem;
+      animation: rise 0.7s var(--ease) both;
+    }
+    .hero h2 {
+      margin: 0 0 0.4rem;
+      font-size: clamp(1.75rem, 4vw, 2.35rem);
+      font-weight: 700;
+      letter-spacing: -0.035em;
+      line-height: 1.1;
+    }
+    .hero p {
+      margin: 0;
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      max-width: 40ch;
+      font-weight: 400;
+    }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Stat cards */
+    .grid-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.85rem;
+      margin-bottom: 1.5rem;
+    }
+    @media (max-width: 900px) {
+      .grid-stats { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 480px) {
+      .grid-stats { grid-template-columns: 1fr; }
+    }
+
+    .stat {
+      position: relative;
+      background: var(--bg-card);
+      backdrop-filter: saturate(var(--sat)) blur(20px);
+      -webkit-backdrop-filter: saturate(var(--sat)) blur(20px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.15rem 1.2rem 1.05rem;
+      box-shadow: var(--shadow);
+      transition:
+        transform 0.45s var(--ease),
+        box-shadow 0.45s var(--ease),
+        border-color 0.3s ease;
+      animation: rise 0.65s var(--ease) both;
+      overflow: hidden;
+    }
+    .stat:nth-child(1) { animation-delay: 0.05s; }
+    .stat:nth-child(2) { animation-delay: 0.1s; }
+    .stat:nth-child(3) { animation-delay: 0.15s; }
+    .stat:nth-child(4) { animation-delay: 0.2s; }
+    .stat::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.12), transparent 50%);
+      pointer-events: none;
+      opacity: 0.5;
+    }
+    .stat:hover {
+      transform: translateY(-3px) scale(1.01);
+      box-shadow: var(--shadow-hover);
+    }
+    .stat .label {
+      margin: 0 0 0.45rem;
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      letter-spacing: -0.01em;
+    }
+    .stat .value {
+      margin: 0;
+      font-size: 2rem;
+      font-weight: 650;
+      letter-spacing: -0.04em;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+    .stat .hint {
+      margin: 0.55rem 0 0;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      font-family: var(--mono);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Panels */
+    .panel {
+      background: var(--bg-card);
+      backdrop-filter: saturate(var(--sat)) blur(20px);
+      -webkit-backdrop-filter: saturate(var(--sat)) blur(20px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 1.15rem;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      animation: rise 0.7s var(--ease) both;
+      transition: box-shadow 0.4s var(--ease), transform 0.4s var(--ease);
+    }
+    .panel:nth-of-type(1) { animation-delay: 0.18s; }
+    .panel:nth-of-type(2) { animation-delay: 0.26s; }
+    .panel:hover { box-shadow: var(--shadow-hover); }
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--hairline);
+    }
+    .panel-head h3 {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .panel-head .meta {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      font-weight: 500;
+      padding: 0.25rem 0.65rem;
+      border-radius: var(--radius-pill);
+      background: color-mix(in srgb, var(--text-secondary) 10%, transparent);
+    }
+    .panel-body { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.85rem 1.15rem;
+      border-bottom: 1px solid var(--hairline);
+      vertical-align: middle;
+    }
+    th {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: none;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+      background: color-mix(in srgb, var(--bg-card) 92%, transparent);
+      backdrop-filter: blur(8px);
+    }
+    tr:last-child td { border-bottom: none; }
+    tbody tr {
+      transition: background 0.25s var(--ease), transform 0.25s var(--ease);
+    }
+    tbody tr:hover td { background: var(--bg-row-hover); }
+
+    .mono {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      letter-spacing: -0.02em;
+    }
+    .muted { color: var(--text-secondary); }
+    .truncate {
+      max-width: 26ch;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      display: inline-block;
+      vertical-align: bottom;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.22rem 0.55rem;
+      border-radius: var(--radius-pill);
+      letter-spacing: -0.01em;
+      text-transform: none;
+      transition: transform 0.3s var(--ease-spring);
+    }
+    tbody tr:hover .badge { transform: scale(1.04); }
+    .badge.file { background: color-mix(in srgb, var(--file) 14%, transparent); color: var(--file); }
+    .badge.mcp_tool { background: color-mix(in srgb, var(--mcp) 14%, transparent); color: var(--mcp); }
+    .badge.api_endpoint { background: color-mix(in srgb, var(--api) 16%, transparent); color: var(--api); }
+    .badge.env_var { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
+    .badge.active { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+    .badge.inactive { background: color-mix(in srgb, var(--text-secondary) 12%, transparent); color: var(--text-secondary); }
+    .badge.signed { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+    .badge.unsigned { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
+    .badge.invalid { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+    .badge.none { background: color-mix(in srgb, var(--text-secondary) 10%, transparent); color: var(--text-secondary); }
+
+    .empty {
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+    }
+
+    .error-banner {
+      display: none;
+      margin-bottom: 1rem;
+      padding: 0.9rem 1.1rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent);
+      background: color-mix(in srgb, var(--bad) 10%, transparent);
+      color: var(--bad);
+      font-size: 0.9rem;
+      animation: rise 0.4s var(--ease) both;
+    }
+    .error-banner.show { display: block; }
+
+    /* Forensic chain timeline */
+    .chain-guide {
+      padding: 1.1rem 1.25rem 1rem;
+      border-bottom: 1px solid var(--hairline);
+      background: color-mix(in srgb, var(--accent) 5%, transparent);
+    }
+    .chain-guide h4 {
+      margin: 0 0 0.45rem;
+      font-size: 0.88rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+    .chain-guide p {
+      margin: 0 0 0.75rem;
+      font-size: 0.86rem;
+      color: var(--text-secondary);
+      line-height: 1.45;
+      max-width: 62ch;
+    }
+    .chain-guide ol {
+      margin: 0;
+      padding: 0 0 0 1.15rem;
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+    .chain-guide ol li { margin-bottom: 0.25rem; }
+    .chain-guide ol strong { color: var(--text); font-weight: 600; }
+    .chain-guide .read-dir {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-top: 0.75rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--accent);
+      padding: 0.35rem 0.7rem;
+      border-radius: var(--radius-pill);
+      background: var(--accent-soft);
+    }
+
+    .chain-status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 0.75rem;
+      padding: 0.85rem 1.25rem;
+      border-bottom: 1px solid var(--hairline);
+      align-items: center;
+    }
+    .chain-status .chip {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.28rem 0.7rem;
+      border-radius: var(--radius-pill);
+      background: color-mix(in srgb, var(--text-secondary) 10%, transparent);
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+    .chain-status .chip.ok {
+      background: color-mix(in srgb, var(--good) 14%, transparent);
+      color: var(--good);
+    }
+    .chain-status .chip.bad {
+      background: color-mix(in srgb, var(--bad) 14%, transparent);
+      color: var(--bad);
+    }
+    .chain-status .chip.mono {
+      font-family: var(--mono);
+      font-weight: 500;
+      letter-spacing: -0.03em;
+      max-width: min(28ch, 100%);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .chain-timeline {
+      padding: 1.25rem 1.35rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    .link-role {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      margin-bottom: 0.35rem;
+    }
+    .link-role.genesis { color: var(--warn); }
+    .link-role.tip { color: var(--accent); }
+    .link-blurb {
+      margin: 0 0 0.65rem;
+      font-size: 0.84rem;
+      color: var(--text);
+      line-height: 1.4;
+      letter-spacing: -0.01em;
+    }
+    .link-blurb .muted { color: var(--text-secondary); }
+    .link-check {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.45rem;
+      margin: 0 0 0.7rem;
+      padding: 0.55rem 0.7rem;
+      border-radius: 10px;
+      font-size: 0.8rem;
+      line-height: 1.35;
+      background: color-mix(in srgb, var(--good) 10%, transparent);
+      color: var(--good);
+      border: 1px solid color-mix(in srgb, var(--good) 22%, transparent);
+    }
+    .link-check.break {
+      background: color-mix(in srgb, var(--bad) 10%, transparent);
+      color: var(--bad);
+      border-color: color-mix(in srgb, var(--bad) 22%, transparent);
+    }
+    .link-check.genesis-note {
+      background: color-mix(in srgb, var(--warn) 12%, transparent);
+      color: color-mix(in srgb, var(--warn) 80%, var(--text));
+      border-color: color-mix(in srgb, var(--warn) 28%, transparent);
+    }
+    .link-check .ico {
+      flex-shrink: 0;
+      font-weight: 700;
+      width: 1.1rem;
+      text-align: center;
+    }
+    .hash-pair {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      gap: 0.5rem;
+      align-items: stretch;
+      margin-bottom: 0.7rem;
+      min-width: 0;
+    }
+    @media (max-width: 640px) {
+      .hash-pair {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .hash-pair .hash-mid { display: none; }
+    }
+    .hash-box {
+      min-width: 0;
+      padding: 0.55rem 0.65rem;
+      border-radius: 10px;
+      border: 1px solid var(--hairline);
+      background: color-mix(in srgb, var(--text) 3.5%, transparent);
+    }
+    .hash-box .hb-label {
+      font-size: 0.68rem;
+      font-weight: 650;
+      color: var(--text-secondary);
+      margin-bottom: 0.25rem;
+      letter-spacing: -0.01em;
+    }
+    .hash-box .hb-value {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      letter-spacing: -0.02em;
+    }
+    .hash-box .hb-hint {
+      margin-top: 0.2rem;
+      font-size: 0.7rem;
+      color: var(--text-secondary);
+      line-height: 1.3;
+    }
+    .hash-mid {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      opacity: 0.65;
+      padding-top: 0.6rem;
+    }
+    .detail-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem 0.9rem;
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+    }
+    .detail-row span strong {
+      color: var(--text);
+      font-weight: 550;
+    }
+    .detail-row .mono {
+      font-size: 0.74rem;
+    }
+    .target-block {
+      margin: 0 0 0.65rem;
+      padding: 0.65rem 0.75rem;
+      border-radius: 12px;
+      border: 1px solid var(--hairline);
+      background: color-mix(in srgb, var(--accent) 7%, transparent);
+      min-width: 0;
+    }
+    .target-block .target-kind {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.2rem;
+    }
+    .target-block .target-name {
+      font-size: 1.05rem;
+      font-weight: 650;
+      letter-spacing: -0.03em;
+      line-height: 1.25;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .target-block .target-path {
+      margin-top: 0.2rem;
+      font-size: 0.74rem;
+      color: var(--text-secondary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    /* Disable stagger animations after first paint so refresh does not flash */
+    .chain-link,
+    .stat,
+    .panel,
+    .hero {
+      animation: none;
+    }
+    .chain-link {
+      display: grid;
+      grid-template-columns: 52px minmax(0, 1fr);
+      gap: 0.85rem;
+      position: relative;
+      animation: rise 0.55s var(--ease) both;
+      max-width: 100%;
+    }
+    .chain-link + .chain-link { margin-top: 0; }
+    .chain-rail {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      flex-shrink: 0;
+    }
+    .chain-node {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-size: 0.72rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: #fff;
+      background: var(--accent);
+      box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 40%, transparent);
+      z-index: 1;
+      transition: transform 0.35s var(--ease-spring);
+    }
+    .chain-link:hover .chain-node { transform: scale(1.08); }
+    .chain-node.valid { background: var(--good); box-shadow: 0 4px 14px color-mix(in srgb, var(--good) 40%, transparent); }
+    .chain-node.invalid { background: var(--bad); box-shadow: 0 4px 14px color-mix(in srgb, var(--bad) 40%, transparent); }
+    .chain-node.unsigned {
+      background: var(--warn);
+      color: #1d1d1f;
+      box-shadow: 0 4px 14px color-mix(in srgb, var(--warn) 40%, transparent);
+    }
+    .chain-stem {
+      flex: 1;
+      width: 3px;
+      min-height: 1.25rem;
+      margin: 0.15rem 0;
+      border-radius: 3px;
+      background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--accent) 55%, transparent),
+        color-mix(in srgb, var(--text-secondary) 25%, transparent)
+      );
+    }
+    .chain-link:last-child .chain-stem { display: none; }
+    .chain-card {
+      background: color-mix(in srgb, var(--bg) 55%, transparent);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.95rem 1.05rem;
+      margin-bottom: 0.85rem;
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      transition:
+        transform 0.35s var(--ease),
+        box-shadow 0.35s var(--ease),
+        border-color 0.25s ease;
+    }
+    .chain-link:hover .chain-card {
+      transform: translateX(2px);
+      box-shadow: var(--shadow);
+      border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+    }
+    .chain-card-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem 0.75rem;
+      margin-bottom: 0.65rem;
+      min-width: 0;
+    }
+    .chain-card-top .title {
+      font-weight: 600;
+      font-size: 0.92rem;
+      letter-spacing: -0.02em;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem;
+      min-width: 0;
+      max-width: 100%;
+    }
+    .chain-card-top .title .mono {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 14ch;
+    }
+    .chain-meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.65rem 1rem;
+      font-size: 0.78rem;
+      min-width: 0;
+    }
+    @media (max-width: 640px) {
+      .chain-meta { grid-template-columns: minmax(0, 1fr); }
+    }
+    .chain-meta > div {
+      min-width: 0;
+      overflow: hidden;
+    }
+    .chain-meta > div.hash-row {
+      grid-column: 1 / -1;
+    }
+    .chain-meta .k {
+      color: var(--text-secondary);
+      font-weight: 500;
+      display: block;
+      margin-bottom: 0.2rem;
+    }
+    .chain-meta .v {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: -0.02em;
+      display: block;
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      line-height: 1.35;
+    }
+    /* Hash chips: short visible, full on hover title */
+    .hash-chip {
+      display: inline-flex;
+      align-items: center;
+      max-width: 100%;
+      min-width: 0;
+      padding: 0.28rem 0.55rem;
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--text) 5%, transparent);
+      border: 1px solid var(--hairline);
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: -0.02em;
+      line-height: 1.3;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      vertical-align: middle;
+      cursor: default;
+    }
+    /* Trigger table hash cells */
+    td.mono.hash-cell {
+      max-width: 12ch;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    footer.foot {
+      margin-top: 2rem;
+      padding-top: 1rem;
+      color: var(--text-secondary);
+      font-size: 0.78rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.5rem;
+      justify-content: space-between;
+      animation: rise 0.8s var(--ease) 0.3s both;
+    }
+    a {
+      color: var(--accent);
+      text-decoration: none;
+      transition: opacity 0.2s ease;
+    }
+    a:hover { opacity: 0.75; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <div class="brand">
+        <div class="mark" aria-hidden="true">🐦</div>
+        <div class="brand-text">
+          <h1>Agent Canary</h1>
+          <p class="sub" id="root-path" title="{{ROOT}}">{{ROOT}}</p>
+        </div>
+      </div>
+      <div class="nav-actions">
+        <span class="pill" id="chain-pill"><span class="dot"></span><span id="chain-label">Chain</span></span>
+        <button type="button" class="btn" id="btn-refresh"><span class="btn-icon">↻</span> Refresh</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="wrap">
+    <header class="hero">
+      <h2>Operator overview</h2>
+      <p>Tripwires, triggers, and forensic seals in one calm view.</p>
+    </header>
+
+    <div class="error-banner" id="error-banner" role="alert"></div>
+
+    <div class="grid-stats" id="stats" aria-label="Summary"></div>
+
+    <section class="panel" aria-labelledby="chain-heading">
+      <div class="panel-head">
+        <h3 id="chain-heading">Forensic chain</h3>
+        <span class="meta" id="chain-meta">-</span>
+      </div>
+      <div class="chain-guide" id="chain-guide">
+        <h4>How to read this</h4>
+        <p>
+          Every canary trip is sealed into an append-only list. Each link stores a fingerprint of the event
+          and a pointer to the previous link. If someone edits an old trigger, the next pointer no longer matches.
+        </p>
+        <ol>
+          <li><strong>Read top to bottom.</strong> Link 1 is first (oldest). The last link is the tip (newest).</li>
+          <li><strong>Each card is one trip.</strong> File read, MCP tool call, or API hit.</li>
+          <li><strong>Green “links back” means intact.</strong> This link’s “points to” equals the previous link’s fingerprint.</li>
+          <li><strong>Hover a hash chip</strong> to see the full value. Short form is for scanning only.</li>
+        </ol>
+        <div class="read-dir">↓ Oldest first · newest at the bottom</div>
+      </div>
+      <div class="chain-status" id="chain-status"></div>
+      <div class="panel-body" id="chain-body">
+        <div class="empty">Loading forensic chain...</div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="canaries-heading">
+      <div class="panel-head">
+        <h3 id="canaries-heading">Planted canaries</h3>
+        <span class="meta" id="canaries-meta">-</span>
+      </div>
+      <div class="panel-body" id="canaries-body">
+        <div class="empty">Loading canaries...</div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="triggers-heading">
+      <div class="panel-head">
+        <h3 id="triggers-heading">Trigger history</h3>
+        <span class="meta" id="triggers-meta">-</span>
+      </div>
+      <div class="panel-body" id="triggers-body">
+        <div class="empty">Loading triggers...</div>
+      </div>
+    </section>
+
+    <footer class="foot">
+      <span>Read-only. Plant and watch stay on the CLI.</span>
+      <span>
+        <a href="/api/dashboard">API</a> ·
+        <a href="/api/chain">Chain</a> ·
+        <a href="/api/health">Health</a>
+      </span>
+    </footer>
+  </div>
+
+  <script id="bootstrap-data" type="application/json">{{BOOTSTRAP_JSON}}</script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    // Frosted nav shadow on scroll
+    const nav = $("nav");
+    const onScroll = () => nav.classList.toggle("scrolled", window.scrollY > 8);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+
+    function readBootstrap() {
+      try {
+        const el = document.getElementById("bootstrap-data");
+        if (!el || !el.textContent || el.textContent.indexOf("{{") === 0) return null;
+        return JSON.parse(el.textContent);
+      } catch (e) {
+        console.error("bootstrap parse failed", e);
+        return null;
+      }
+    }
+
+    // Last painted payload (string). Skip re-render when nothing changed.
+    let lastPayloadKey = "";
+
+    function applyData(data, opts) {
+      if (!data) return;
+      const force = opts && opts.force;
+      let key = "";
+      try {
+        key = JSON.stringify(data);
+      } catch (e) {
+        key = String(Date.now());
+      }
+      if (!force && key && key === lastPayloadKey) {
+        return; // quiet: no visual churn
+      }
+      lastPayloadKey = key;
+      renderStats(data.summary || {});
+      renderChain(data.chain || {});
+      renderCanaries(data.canaries || []);
+      renderTriggers(data.triggers || []);
+    }
+
+    function vectorBadge(v) {
+      const cls = String(v || "unknown").replace(/[^a-z0-9_]/gi, "_");
+      return `<span class="badge ${cls}">${escapeHtml(v)}</span>`;
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function shortHash(h, keep) {
+      if (!h) return "-";
+      const s = String(h);
+      const n = keep || 12;
+      return s.length > n + 2 ? s.slice(0, n) + "…" : s;
+    }
+
+    function sealBadge(seal) {
+      if (!seal || !seal.present) return `<span class="badge none">no seal</span>`;
+      if (!seal.valid) return `<span class="badge invalid">invalid</span>`;
+      if (seal.signed) return `<span class="badge signed">signed</span>`;
+      return `<span class="badge unsigned">sha256</span>`;
+    }
+
+    function renderStats(summary) {
+      const tip = summary.chain_tip_seq
+        ? "seq " + summary.chain_tip_seq + " · " + shortHash(summary.chain_tip_hash)
+        : "genesis";
+      const cards = [
+        { label: "Canaries", value: summary.canary_total, hint: (summary.canary_active || 0) + " active" },
+        {
+          label: "Triggers",
+          value: summary.trigger_total,
+          hint: Object.entries(summary.triggers_by_vector || {}).map(([k, v]) => k + ":" + v).join(" · ") || "none",
+        },
+        { label: "Sealed", value: summary.sealed_triggers, hint: (summary.signed_triggers || 0) + " BIP-340 signed" },
+        { label: "Chain tip", value: summary.chain_tip_seq || 0, hint: tip },
+      ];
+      $("stats").innerHTML = cards.map((c) => `
+        <article class="stat">
+          <p class="label">${escapeHtml(c.label)}</p>
+          <p class="value">${escapeHtml(c.value)}</p>
+          <p class="hint">${escapeHtml(c.hint || "")}</p>
+        </article>
+      `).join("");
+
+      const pill = $("chain-pill");
+      const label = $("chain-label");
+      if (summary.chain_ok) {
+        pill.className = "pill ok";
+        label.textContent = summary.chain_checked
+          ? "Chain OK (" + summary.chain_checked + ")"
+          : "Chain empty";
+      } else {
+        pill.className = "pill bad";
+        label.textContent = "Chain broken";
+      }
+
+      if (summary.root) {
+        const el = $("root-path");
+        el.textContent = summary.root;
+        el.title = summary.root;
+      }
+    }
+
+    function vectorPlain(v) {
+      const m = {
+        file: "file honeypot read",
+        mcp_tool: "MCP tripwire tool call",
+        api_endpoint: "decoy API request",
+        env_var: "env canary access",
+      };
+      return m[v] || String(v || "event");
+    }
+
+    function isGenesisPrev(prev) {
+      if (!prev) return true;
+      return /^0+$/.test(String(prev));
+    }
+
+    function renderChain(chain) {
+      const links = chain.links || [];
+      $("chain-meta").textContent = links.length
+        ? links.length + " event" + (links.length === 1 ? "" : "s")
+        : "empty";
+
+      const status = $("chain-status");
+      const okClass = chain.ok ? "ok" : "bad";
+      const tip = chain.tip_hash ? shortHash(chain.tip_hash, 10) : "-";
+      if (!links.length) {
+        status.innerHTML = `<span class="chip">No seals yet</span>`;
+      } else {
+        status.innerHTML = `
+          <span class="chip ${okClass}">${chain.ok ? "Whole chain checks out" : "Break detected"}</span>
+          <span class="chip">${escapeHtml(links.length)} linked events</span>
+          <span class="chip">Latest is #${escapeHtml(chain.tip_seq || links.length)}</span>
+          <span class="chip mono" title="${escapeHtml(chain.tip_hash || "")}">latest fingerprint ${escapeHtml(tip)}</span>
+        `;
+      }
+
+      if (!links.length) {
+        $("chain-body").innerHTML =
+          `<div class="empty">No sealed forensic links yet. When a canary trips, it lands here as the next link.</div>`;
+        return;
+      }
+
+      const html = links.map((link, i) => {
+        const prevLink = i > 0 ? links[i - 1] : null;
+        const isFirst = i === 0;
+        const isLast = i === links.length - 1;
+        const genesis = isGenesisPrev(link.prev_hash);
+        const pointsBackOk = prevLink
+          ? String(link.prev_hash || "") === String(prevLink.content_hash || "")
+          : genesis;
+
+        let nodeClass = "unsigned";
+        if (!link.valid || (!isFirst && !pointsBackOk)) nodeClass = "invalid";
+        else if (link.valid) nodeClass = "valid";
+
+        let role = "Link";
+        let roleClass = "";
+        if (isFirst && isLast) { role = "Only link"; roleClass = "tip"; }
+        else if (isFirst) { role = "Start of chain"; roleClass = "genesis"; }
+        else if (isLast) { role = "Latest (tip)"; roleClass = "tip"; }
+        else { role = "Middle link"; }
+
+        const what = vectorPlain(link.vector);
+        const fileName = link.target_name || "";
+        const filePath = link.target_path || "";
+        const targetLabel = fileName
+          ? (link.target_kind === "file"
+            ? `file “${fileName}”`
+            : link.target_kind === "tool"
+              ? `tool “${fileName}”`
+              : link.target_kind === "endpoint"
+                ? `route “${fileName}”`
+                : `“${fileName}”`)
+          : what;
+        const blurb = isFirst
+          ? `Event #${link.seq}: first sealed trip (${targetLabel}). Everything later hangs off this fingerprint.`
+          : `Event #${link.seq}: another trip (${targetLabel}). It claims to follow event #${prevLink.seq}.`;
+
+        let checkHtml;
+        if (isFirst && genesis) {
+          checkHtml = `<div class="link-check genesis-note"><span class="ico">1</span><span><strong>Chain start.</strong> “Points to” is empty genesis (all zeros). Nothing older to compare.</span></div>`;
+        } else if (pointsBackOk) {
+          checkHtml = `<div class="link-check"><span class="ico">✓</span><span><strong>Links back cleanly.</strong> “Points to” matches event #${prevLink.seq}’s fingerprint. That older record was not swapped out under this link.</span></div>`;
+        } else {
+          checkHtml = `<div class="link-check break"><span class="ico">!</span><span><strong>Break.</strong> “Points to” does not match the previous fingerprint. The chain was tampered with or reordered.</span></div>`;
+        }
+
+        const args = link.forensic_args && Object.keys(link.forensic_args).length
+          ? JSON.stringify(link.forensic_args)
+          : (link.raw_request && Object.keys(link.raw_request).length
+            ? JSON.stringify(link.raw_request)
+            : "");
+        const argsShort = args && args.length > 64 ? args.slice(0, 64) + "…" : args;
+        const timeShort = String(link.triggered_at || "").replace("T", " ").replace(/\+00:00$/, " UTC");
+        const sealLabel = link.signed ? "cryptographically signed" : "hashed only";
+        const validLabel = link.valid ? "seal ok" : "seal invalid";
+
+        const targetBlock = fileName || filePath
+          ? `<div class="target-block">
+              <div class="target-kind">${escapeHtml(
+                link.target_kind === "file" ? "File"
+                  : link.target_kind === "tool" ? "Tool"
+                  : link.target_kind === "endpoint" ? "Endpoint"
+                  : "Target"
+              )}</div>
+              ${fileName ? `<div class="target-name" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</div>` : ""}
+              ${filePath && filePath !== fileName
+                ? `<div class="target-path mono" title="${escapeHtml(filePath)}">${escapeHtml(filePath)}</div>`
+                : ""}
+            </div>`
+          : "";
+
+        return `
+          <div class="chain-link">
+            <div class="chain-rail">
+              <div class="chain-node ${nodeClass}" title="Sequence ${escapeHtml(link.seq)}">${escapeHtml(link.seq)}</div>
+              <div class="chain-stem"></div>
+            </div>
+            <div class="chain-card">
+              <div class="link-role ${roleClass}">${escapeHtml(role)} · ${escapeHtml(link.seq)} of ${escapeHtml(links.length)}</div>
+              <div class="chain-card-top">
+                <span class="title">${vectorBadge(link.vector)} <span class="mono" title="${escapeHtml(link.event_id)}">${escapeHtml(link.event_id)}</span></span>
+                <span>
+                  <span class="badge ${link.signed ? "signed" : "unsigned"}">${escapeHtml(sealLabel)}</span>
+                  <span class="badge ${link.valid ? "active" : "invalid"}">${escapeHtml(validLabel)}</span>
+                </span>
+              </div>
+              ${targetBlock}
+              <p class="link-blurb">${escapeHtml(blurb)}</p>
+              ${checkHtml}
+              <div class="hash-pair">
+                <div class="hash-box">
+                  <div class="hb-label">Points to (previous)</div>
+                  <div class="hb-value" title="${escapeHtml(link.prev_hash || "")}">${escapeHtml(shortHash(link.prev_hash, 16))}</div>
+                  <div class="hb-hint">${isFirst ? "Genesis: no older link" : "Must equal event #" + (prevLink ? prevLink.seq : "?") + " fingerprint"}</div>
+                </div>
+                <div class="hash-mid" aria-hidden="true">→</div>
+                <div class="hash-box">
+                  <div class="hb-label">This event fingerprint</div>
+                  <div class="hb-value" title="${escapeHtml(link.content_hash || "")}">${escapeHtml(shortHash(link.content_hash, 16))}</div>
+                  <div class="hb-hint">Next link must point here</div>
+                </div>
+              </div>
+              <div class="detail-row">
+                <span><strong>Canary</strong> <span class="mono" title="${escapeHtml(link.canary_id)}">${escapeHtml(link.canary_id)}</span></span>
+                <span><strong>When</strong> ${escapeHtml(timeShort)}</span>
+                ${args ? `<span title="${escapeHtml(args)}"><strong>Caught</strong> <span class="mono">${escapeHtml(argsShort)}</span></span>` : ""}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      $("chain-body").innerHTML = `<div class="chain-timeline">${html}</div>`;
+    }
+
+    function renderCanaries(rows) {
+      $("canaries-meta").textContent = rows.length + " registered";
+      if (!rows.length) {
+        $("canaries-body").innerHTML =
+          `<div class="empty">No canaries planted. Run <span class="mono">agent-canary plant ...</span></div>`;
+        return;
+      }
+      const head = `<table>
+        <thead><tr>
+          <th>ID</th><th>Vector</th><th>Name</th><th>Path / URL</th>
+          <th>Active</th><th>Triggers</th><th>Notice</th>
+        </tr></thead><tbody>`;
+      const body = rows.map((r) => `
+        <tr>
+          <td class="mono">${escapeHtml(r.id)}</td>
+          <td>${vectorBadge(r.vector)}</td>
+          <td>${escapeHtml(r.name)}</td>
+          <td class="mono muted"><span class="truncate" title="${escapeHtml(r.path_or_url)}">${escapeHtml(r.path_or_url)}</span></td>
+          <td><span class="badge ${r.active ? "active" : "inactive"}">${r.active ? "Active" : "Off"}</span></td>
+          <td class="mono">${escapeHtml(r.trigger_count)}</td>
+          <td class="muted">${escapeHtml(r.notice_mode || "off")}</td>
+        </tr>
+      `).join("");
+      $("canaries-body").innerHTML = head + body + "</tbody></table>";
+    }
+
+    function renderTriggers(rows) {
+      $("triggers-meta").textContent = rows.length + " recent";
+      if (!rows.length) {
+        $("triggers-body").innerHTML = `<div class="empty">No triggers recorded yet.</div>`;
+        return;
+      }
+      const head = `<table>
+        <thead><tr>
+          <th>Event</th><th>Canary</th><th>Vector</th><th>Time</th>
+          <th>Seal</th><th>Seq</th><th>Content hash</th><th>Algorithm</th>
+        </tr></thead><tbody>`;
+      const body = rows.map((r) => {
+        const s = r.seal || {};
+        return `
+        <tr>
+          <td class="mono">${escapeHtml(r.id)}</td>
+          <td class="mono"><span class="truncate" title="${escapeHtml(r.canary_id)}">${escapeHtml(r.canary_id)}</span></td>
+          <td>${vectorBadge(r.vector)}</td>
+          <td class="muted mono" style="white-space:nowrap">${escapeHtml(r.triggered_at)}</td>
+          <td>${sealBadge(s)}</td>
+          <td class="mono">${s.seq != null ? escapeHtml(s.seq) : "-"}</td>
+          <td class="mono muted hash-cell" title="${escapeHtml(s.content_hash || "")}">${escapeHtml(shortHash(s.content_hash, 10))}</td>
+          <td class="muted">${escapeHtml(s.algorithm || "-")}${s.signed ? " · sig" : ""}</td>
+        </tr>`;
+      }).join("");
+      $("triggers-body").innerHTML = head + body + "</tbody></table>";
+    }
+
+    async function loadDashboard() {
+      const banner = $("error-banner");
+      const btn = $("btn-refresh");
+      banner.classList.remove("show");
+      btn.classList.add("spinning");
+      try {
+        const res = await fetch("/api/dashboard", { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        // Only re-render when data actually changed
+        applyData(await res.json());
+      } catch (err) {
+        const statsEmpty = !$("stats") || !$("stats").children.length;
+        if (statsEmpty) {
+          banner.textContent = "Failed to load dashboard data: " + (err && err.message ? err.message : err);
+          banner.classList.add("show");
+        }
+      } finally {
+        btn.classList.remove("spinning");
+      }
+    }
+
+    // Paint once from SSR bootstrap. No auto-polling (no visual refresh loop).
+    applyData(readBootstrap(), { force: true });
+    $("btn-refresh").addEventListener("click", loadDashboard);
+  </script>
+</body>
+</html>

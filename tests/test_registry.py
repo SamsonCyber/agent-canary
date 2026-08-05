@@ -92,7 +92,14 @@ def test_trigger_forensic_roundtrip(reg):
     canary = _make_canary()
     reg.add_canary(canary)
 
-    from agent_canary.models import ForensicChain, AgentFingerprint
+    from agent_canary.models import (
+        AgentFingerprint,
+        Classification,
+        ForensicChain,
+        Severity,
+        ToolCall,
+        TriggerCause,
+    )
     event = TriggerEvent(
         canary_id=canary.id,
         vector=Vector.FILE,
@@ -100,21 +107,48 @@ def test_trigger_forensic_roundtrip(reg):
             trigger_prompt="Read the secret file",
             reasoning_trace="User asked for database credentials",
             raw_args={"path": "/etc/secrets"},
+            context_summary="scope creep into secrets",
+            preceding_tool_calls=[
+                ToolCall(tool="read_file", args={"path": "/etc/secrets"}, timestamp="t1"),
+            ],
         ),
         agent_fingerprint=AgentFingerprint(
             model="claude-sonnet-4-6",
             model_confidence=0.92,
             framework="claude-code",
+            framework_confidence=0.8,
+            session_id="sess-abc",
+            system_prompt_hash="deadbeef",
+        ),
+        classification=Classification(
+            cause=TriggerCause.SCOPE_CREEP,
+            severity=Severity.HIGH,
+            injected_content=False,
+            recommendations=["tighten tool allowlist"],
         ),
         raw_request={"method": "READ", "path": "/etc/secrets"},
     )
-    reg.log_trigger(event)
+    reg.log_trigger(event, publish=False)
 
     retrieved = reg.get_triggers(canary_id=canary.id)
     assert len(retrieved) == 1
     r = retrieved[0]
     assert r.forensic_chain.trigger_prompt == "Read the secret file"
+    assert r.forensic_chain.reasoning_trace == "User asked for database credentials"
+    assert r.forensic_chain.context_summary == "scope creep into secrets"
     assert r.forensic_chain.raw_args["path"] == "/etc/secrets"
+    assert len(r.forensic_chain.preceding_tool_calls) == 1
+    assert r.forensic_chain.preceding_tool_calls[0].tool == "read_file"
+    assert r.forensic_chain.preceding_tool_calls[0].args["path"] == "/etc/secrets"
     assert r.agent_fingerprint.model == "claude-sonnet-4-6"
     assert r.agent_fingerprint.model_confidence == 0.92
+    assert r.agent_fingerprint.framework == "claude-code"
+    assert r.agent_fingerprint.session_id == "sess-abc"
+    assert r.agent_fingerprint.system_prompt_hash == "deadbeef"
+    assert r.classification.cause == TriggerCause.SCOPE_CREEP
+    assert r.classification.severity == Severity.HIGH
+    assert r.classification.recommendations == ["tighten tool allowlist"]
     assert r.raw_request["method"] == "READ"
+    assert r.chain_seal is not None
+    assert r.chain_seal.seq == 1
+    assert r.chain_seal.content_hash

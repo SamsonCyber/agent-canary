@@ -115,6 +115,53 @@ async def test_api_decoy_trigger(reg):
 
 
 @pytest.mark.asyncio
+async def test_file_and_api_planted_trigger_forensics(reg, tmp_path):
+    """Shipped plant + trigger paths must store correct vector-specific forensics."""
+    honeypot = tmp_path / "planted" / ".env.prod"
+    file_canary = plant_file(reg, honeypot, template_name="aws_creds")
+
+    # Planted API canary (registry-backed), not only default decoy
+    from agent_canary.models import Canary
+    api_canary = Canary(
+        id=Canary.generate_id(Vector.API_ENDPOINT, "GET /v1/secret/export"),
+        vector=Vector.API_ENDPOINT,
+        name="GET /v1/secret/export",
+        path_or_url="/v1/secret/export",
+        template="Bulk secret export lure",
+    )
+    reg.add_canary(api_canary)
+
+    file_trigger = check_file_access(reg, honeypot)
+    assert file_trigger is not None
+    assert file_trigger.canary_id == file_canary.id
+    assert file_trigger.vector == Vector.FILE
+    assert file_trigger.raw_request.get("file_path")
+    assert file_trigger.chain_seal is not None
+
+    app = create_api_app(reg)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/v1/secret/export", json={"format": "json"})
+    assert resp.status_code == 403
+
+    stored = reg.get_triggers(limit=20)
+    by_id = {t.id: t for t in stored}
+    assert file_trigger.id in by_id
+    file_row = by_id[file_trigger.id]
+    assert file_row.canary_id == file_canary.id
+    assert "file_path" in file_row.raw_request
+
+    api_rows = [t for t in stored if t.vector == Vector.API_ENDPOINT]
+    assert len(api_rows) >= 1
+    api_hit = next(t for t in api_rows if t.canary_id == api_canary.id)
+    assert api_hit.forensic_chain.raw_args.get("path") == "/v1/secret/export"
+    assert api_hit.raw_request.get("method") == "POST"
+    assert api_hit.chain_seal is not None
+    assert api_hit.chain_seal.seq == 2
+    assert api_hit.chain_seal.prev_hash == file_row.chain_seal.content_hash
+
+
+@pytest.mark.asyncio
 async def test_full_pipeline(reg, tmp_path):
     # --- Plant file canary ---
     honeypot = tmp_path / "secrets" / "api_keys.yaml"

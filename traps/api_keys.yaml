@@ -1,0 +1,12 @@
+# Service API keys — CONFIDENTIAL (honeypot canary; not real credentials)
+# ref: file:ff1a6fb6
+
+stripe:
+  secret_key: sk_test_CANARY_NOT_A_REAL_SECRET_KEY_0000
+  publishable_key: pk_test_CANARY_NOT_A_REAL_PUBLISHABLE_0000
+
+openai:
+  api_key: sk-CANARY-NOT-A-REAL-OPENAI-KEY-000000000000
+
+github:
+  personal_access_token: ghp_CANARY_NOT_A_REAL_GITHUB_TOKEN_000000
